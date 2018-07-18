@@ -1,0 +1,280 @@
+hproto - Human-friendly binary protocol message encoding
+========================================================
+
+hproto is a binary protocol message encoding similar to Google's "protocol buffers", "MessagePack", "BENCODE" "ASN.1", "XDR" or the author's own "aproto".
+
+It is used by a sending process to encode ("marshal") the data structure of a software message as an opaque block of binary data, which can then be transferred by any means available to a receiving process, which decodes ("un-marshals") and re-assembles an equivalent message for local processing.
+
+The scope of application for hproto is also similar to that of XML, YAML, RFC-822 and JSON, except that hproto is not a text-based encoding.
+
+The outstanding property of hproto is the fact that the encoding is simple enough that an encoded message can be decoded by a human with the help of a hexadecimal dump of the message contents relatively easily.
+
+In this regard, hproto is similar to BENCODE, although the actual encoding is much more similar to "protocol buffers".
+
+Like MessagePack, hproto also sacrifices some encoding efficiency for simplicity, resulting in an encoding which is less compact than "protocol buffers" or "aproto", but not by much.
+
+hproto has also some provisions for optionally allowing to define messages in such a way so that they can be modified in-place. This is not as powerful als Google's "flatbuffers" which have been created explicitly for this purpose, but also much simpler to implement and understand.
+
+Like "protocol buffers", hproto provides a metasyntax for defining the structure of a message. This information needs to be known by both the sender and receiver of a message in order to understand the contents of the message.
+
+"protocol buffers" uses ".proto" text files for storing this metasyntax information, while hproto uses - little surprisingly - ".hproto" files for the same purpose.
+
+It should be possible to write a message compiler for .hproto files which can validate the syntax of those files and then synthesize code for automatic marshalling and unmarshalling of hproto messages.
+
+But this has not been done yet and may never be done, because hproto is simple enough that it can be assembled mostly manually. It can also be decoded visually using only a hex dump of the encoded message and a copy of the associated .hproto file as a reference.
+
+OK, and now for an example how hproto works. Let's assume we have the follwing C struct
+
+struct person {
+   char *first_name, *last_name;
+   unsigned int born;
+}= { "John", "Doe", 1990 };
+
+and want to encode it as binary hproto message blob ("binary (potentially) large object") for transport.
+
+First, we create a file "person.hproto" for this message, containing the following definition:
+
+message person {
+   string first_name: 0;
+   string last_name: 1;
+   uint born: 2;
+};
+
+This defines the fields which are allowed in the message and also assigned numeric field numbers to every field. The syntax for the field numbers looks similar to that of bit fields in C.
+
+Other than the field names which are only required in the proto files, the field numbers will actually be part of the encoded binary message as "tags numbers".
+
+Next, one needs to know the general encoding of a hproto message.
+
+A hproto message encoding is an unordered collection of fields, much more like a hash rather than a C "struct". The fields within the message are identified by their tag number rather than by their order.
+
+The actual message encoding is just a concatenation of field value encodings.
+
+Each field value encoding has the following structure:
+
+<type_octet> [ <tag_extension> ] [ <external_length> ] <field_contents>
+
+Only <type_octet> and <field_contents> are actually necessary for every field, and <field_contents> has a variable size which can also be zero.
+
+<type_octet> consists of two bitfields with 4 bits each, which will be represented by a single hex-digit in a hex-dump of the message:
+
+* The left hex-digit of <type_octet> encodes the tag number of the field.
+* The right hex-digit of <type_octet> encodes the byte size of the field contents.
+
+The tag number is encoded directly within <type_octet> if its value is less than 0x0e. Otherwise, <tag_extension> is present contains the actual tag number as a big-endian base-256 unsigned integer.
+
+The byte size of the field contents is encoded directly within <type_octet> if its value is less than 0x0c. Otherwise, <external_length> is present contains the actual tag number as a big-endian base-256 unsigned integer.
+
+The size of the <tag_extension> field itself is determined by the value of the left hex-digit in <type_octet>: 1 if it is 0x0e, 2 if it is 0x0f, 0 otherwise.
+
+The size of the <external_length> field itself is determined by the value of the right hex-digit in <type_octet>: 1 if it is 0x0c, 2 if it is 0x0d, 3 if it is 0x0e, 4 if it is 0x0f, 0 otherwise.
+
+That's all one needs to know for the encoding of the basic message structure!
+
+What is still required to know is how to encode the actual <field_contents>. This depends on the field type:
+
+"string" is just encoded as the literal contents of the bytes which make up the string, not including the null terminator (in the case of C).
+
+"uint" is the big-endian base-256 representation of the unsigned integer with as many bytes as necessary (or allowed for the intention of in-place editing).
+
+So let's encode our example message now!
+
+Fist, we encode the field values as hexadecimal bytes:
+
+$ # string first_name: 0;
+$ printf %s John | hexdump -C
+00000000  4a 6f 68 6e                                       |John|
+00000004
+
+We encode this as the hex bytes
+
+04 4a 6f 68 6e
+
+The leading "04" is the <type_octet>. The "0" is the field tag for "first_name". The "4" is the length of the string.
+
+$ # string last_name: 1;
+$ printf %s Doe | hexdump -C
+00000000  44 6f 65                                          |Doe|
+00000003
+
+We encode this as the hex bytes
+
+13 44 6f 65
+
+The "1" in the leading "13" is the field tag for "last_name". The "3" is the length of the string.
+
+$ # uint born: 2;
+$ printf '%x\n' 1990
+7c6
+
+We encode this as the hex bytes
+
+22 07 c6
+
+The left "2" in the leading "22" is the field tag for "born". The right "2" is the length of the field. The field itself contains the two bytes 07 c6, which represent the hexadecimal integer 0x07c6 (1990 in decimal).
+
+The complete hproto message encoding is therefore:
+
+04 4a 6f 68 6e 13 44 6f 65 22 07 c6
+
+This has been easy because all tag numbers and field contents lengths could be represented directly within <type_octet> and neither <tag_extension> nor <external_length> where required.
+
+So let's define a more complex message which needs both extended fields:
+
+struct person2 {
+   char *first_name;
+   char *last_name;
+   struct bigint *favorite_fermat_prime;
+}= {
+     UTF7_2_UTF8("G+APw-nther"), "Brunthaler"
+   , STR_2_BIGINT("162259276829213363391578010288127")
+}
+
+message person2 {
+   utf8_string first_name: 8;
+   utf8_string last_name: e80;
+   uint favorite_fermat_prime: f8000;
+};
+
+As one can see, the field number tags in the hproto files must actually be provided as hexadecimal numbers. This was not obvious in our previous example because we only used tag numbers no larger than 9, which are the same in decimal and hexadecimal.
+
+The reason why field numbers must be provided in hexadecimal is the fact that you will also see them in the same form in the hex dump of a message.
+
+We also remember from the explanation of the field number encoding that there are actually 3 different classes of field numbers which are encoded differently:
+
+Nx for N == 0x00 through 0x0d
+ex NN for N == 0x0e00 through 0x0eff
+fx NN NN for N == 0x000f0000 through 0x000fffff
+
+where "x" does not matter (it represents the field length).
+
+Now let's encode the actual fields:
+
+$ # utf8_string first_name: 8 = UTF7_2_UTF8("G+APw-nther")
+$ printf %s G+APw-nther | iconv -f UTF-7 -t UTF-8 | hexdump -C
+00000000  47 c3 bc 6e 74 68 65 72                           |G..nther|
+00000008
+
+This are 0x08 UTF-8 bytes with field tag 0x8, which will be encoded as
+
+88 47 c3 bc 6e 74 68 65 72
+
+$ # utf8_string last_name: e80 = "Brunthaler"
+$ printf %s Brunthaler | iconv -t UTF-8 | hexdump -C
+00000000  42 72 75 6e 74 68 61 6c  65 72                    |Brunthaler|
+0000000a
+
+This are 0x0a bytes with field tag 0xe80, which will be encoded as
+
+ea 80 42 72 75 6e 74 68 61 6c 65 72
+
+Here the "80" are the <tag_extension> which is present because the initial "e" defines a 1-byte <tag_extension> to be present. The "a" in the "ea" is the byte length of the UTF-8 encoded string, and the remaining bytes represent the string contents.
+
+$ # uint favorite_fermat_prime: f8000 = STR_2_BIGINT("162259276829213363391578010288127"
+$ echo "obase=16; 162259276829213363391578010288127" | bc | tr A-F a-f | { read x; expr ${#x} % 2 != 0 > /dev/null && x=0$x; printf '%02x\n' `expr ${#x} / 2`; echo $x | fold -w 2 | paste -s -d " "; }
+0e
+07 ff ff ff ff ff ff ff ff ff ff ff ff ff
+
+The first line of the output is the number (0x0e) of the following bytes, and the second line is just the hexadecimal representation of the large prime number. We encode this as
+
+fc 80 00 0e 07 ff ff ff ff ff ff ff ff ff ff ff ff ff
+
+The "f" in the "fc" means that we use a 2-byte <tag_extension> in addition to the "f", which is represented by the "80 00".
+
+The "c" in the "fc" means that the length of the contents is too large to be encoded directly as the 2nd hex digit of the <type_octet>. Instead, a 1-byte <external_length> is used to represent the actual length. This is the byte "0e" in the encoding. The remaining bytes represent the prime number as an unsigned integer with the value 0x07ffffffffffffffffffffffffff.
+
+Together, the complete message encodes as
+
+88 47 c3 bc 6e 74 68 65 72 ea 80 42 72 75 6e 74 68 61 6c 65 72 fc 80 00 0e 07 ff ff ff ff ff ff ff ff ff ff ff ff ff
+
+Here is a chart for decoding hproto messages from left to right based on their hex dump:
+
+0? - d?: Tag number is directly encoded as 0x00 through 0x0d.
+e?: Tag number follows as 1 byte
+f?: Tag number follows as 2 bytes (big-endian base-256 representation)
+?0 - ?b: Field contents length is directly encoded as 0x00 through 0x0b.
+?c: Field length follows as 1 byte
+?d: Field length follows as 2 bytes (big-endian base-256 representation)
+?e: Field length follows as 3 bytes (big-endian base-256 representation)
+?f: Field length follows as 4 bytes (big-endian base-256 representation)
+
+In all cases, the optional <tag_extension> precedes the optional <external_length>, and both are located between the <type_octet> and the optional <field_contents>.
+
+After those examples, some clarifications.
+
+There are no "required" fields in a message. All fields can be missing, which will then behave like a "NULL" value in SQL (i. e. "field not present").
+
+message person {
+   string first_name: 0;
+   string last_name: 1;
+   opt married: 2;
+};
+
+If the type "opt" is implemented as an empty string (encoded as "20" for tag number 2 and zero length) and the presence of the field means the option applies, then the missing field means that the option does not apply.
+
+That is, the presence of a "20" field encoding as a message field means the person is married. Otherwise the person is not married.
+
+It is also possible to define a default value in the hproto file. If the field is missing in the message, then the field is assumed to have the default value as its contents.
+
+message person {
+   string first_name: 0;
+   string last_name: 1;
+   string marital_status: 2 = "single";
+};
+
+This means that if a field with tag number 2 is present then it represents the marital status as a string. Otherwise, the string "single" will be used as the status even though it is not actually present in the message.
+
+When creating a message, a field can be omitted from the encoding if the value to be encoded equals the field's default value. This is just an optimization, though, and not a requirement.
+
+So far, the length of the <field_contents> have always been determined by the minimum number of bytes required to represent the contents.
+
+However, for messages which are to be edited in-place, it might be a good idea to make the field length that of the maximum supported length of the content.
+
+For instance, if we want to store a 24-bit RGB color encoded as an unsiged integer 0xRRGGBB
+
+message rgb_color {
+   uint rgb24: 9;
+};
+
+then the color black 0x000000 could easily be encoded as
+
+91 00
+
+because 0x000000 and 0x00 are the same integer.
+
+However, if we want to make this message editable in-place, we need to ensure that it will always use 3 bytes for the encoding, even if it means to store leading zeros, so that the value can be replaced with an arbitrary RGB value later.
+
+This can be enforces as follows:
+
+message rgb_color {
+   uint rgb24[3]: 9;
+};
+
+This is not an array but rather defines a fixed field width encoding and size.
+
+Like tag numbers, the field width is also a hexadecimal number, and it specifies not only the size itself but also how the size should be encoded exactly.
+
+In the case of this example, "3" means direct encoding within the <type_octet>. It ensures that the color black would be encoded as
+
+93 00 00 00
+
+The "9" is the tag number, the "3" is the field contents width directly encoded in the <type_octet>, and the "00 00 00" is the 24-bit fixed-width RGB encoding of black.
+
+Another example:
+
+message nested_string {
+   string text: 6;
+};
+
+message song {
+   uint track[1]: 3;
+   nested_string artist[1]: 5;
+   nested_string title[1]: 7;
+   nested_string description[d02]: 4;
+};
+
+Such a message will have the following encoding:
+
+31 LL <track_uint>... 51 LL <artist_string>... 71 LL <title_string>... 4d 02 HH LL <description>
+
+where LL are bits 7-0 of the length and HH are bits 15-8 of the length.
