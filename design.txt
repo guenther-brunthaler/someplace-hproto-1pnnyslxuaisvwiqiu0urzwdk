@@ -273,6 +273,34 @@ Rejecting messages assumed some sort of back-channel of course.
 In situations where this is not possible such as using UDP, applications should just ignore messages which are too large or contain field widths for sizes they cannot handle. After all, UDP does not guarantee any reception at all. So the receiver is free to pretend it never got the message.
 
 
+Optional buffer-size restriction
+--------------------------------
+
+Sometimes it is a good idea to specify the maximum buffer space a message may consume.
+
+Receivers then know what to expect in the worst case, and can even allocate the buffer in advance if the size seems small enough, avoiding subsequent reallocations of the buffer.
+
+Such a declaration should follow any "size-prefix"-declaration and precede any field definitions in a message. The declaration has the following syntax:
+
+maximum buffer size only at top-level is N octets;
+
+This is similar to the "size-prefix" declaration but serves an entirely different purpose. Like "size-prefix" it only has an affect if a the messages is used as the top-level message and is ignored for nested messages.
+
+This declaration is partially forward-compatible: It is never a problem to add such a declaration for a later protocol revision, because without this declaration there is no limit how large the message could potentially become. It is up to the receivers to reject messages too large for them.
+
+Neither is it a problem to reduce the limit in later protocol revisions: Clients which still use the old revision will never receive messages larger than that.
+
+But if you increase the declared maximum buffer size in later revisions, clients using older protocol revisions may reject new messages as being too large.
+
+Note that clients are not forced to check whether the received message conforms to the message definition. They might choose to ignore it. But then they might check, and senders should be prepared for this case.
+
+Also note that the declaration is about the maximum buffer size and not about the maximum "actual message"-size. This means that the buffer space required for the size-prefix, if any, must also be included in the declared maximum buffer size.
+
+Finally, the maximum buffer size implicitly puts the same maximum limit to all message fields and nested messages.
+
+This means it is not necessary to specify maximum sizes for individual message fields; the maximum-buffer size also puts an upper bound to the sizes of all the individual fields.
+
+
 More example field contents encodings
 -------------------------------------
 
