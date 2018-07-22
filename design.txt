@@ -209,6 +209,30 @@ The byte size of the <external_length> field itself is determined by the value o
 That's all one needs to know for the encoding of the basic message structure!
 
 
+Optional message size prefix
+----------------------------
+
+As explained before, it is optionally possible to prefix the actual message encoding with its size, for cases where the exact message size will not be provided by the transport.
+
+This size will be encoded as an "uint", but with a fixed field width in octets that must be defined in the hproto file.
+
+In order to do this, include the following declaration as the first item within a message declaration (before any field definitions):
+
+size-prefix only at top-level with N octets;
+
+where "N" is the number of bytes to be used to represent the fixed-size length prefix field. Note that N must be large enough to be able to store the actual size of the message, no matter how large it gets.
+
+This declaration has only an effect if the message is used as the top-level message. That is, it has to be the "outermost" message in case of nested messages.
+
+When the same message type is used as a nested message within other messages within the same protocol, no size-prefix will be added to the nested messages.
+
+Also note that such a "size-prefix"-declaration is irrevocable - once a revision of a protocol has been declared that way, later revisions cannot change the declared byte-size of the prefix field or remove it entirely. (The only way to do that would be to define a different type of message with a new name or define a new protocol.)
+
+However, it is not a problem to add such a declaration at a later revision, if no such declaration has been present before: In this case, clients still using older protocol revisions will see the size-prefix as "leading garbage", but it will not change the way the messages are parsed from behind.
+
+Clients should generally ignore leading garbage when decoding messages, and maintain the garbage when just forwarding messages uninterpreted.
+
+
 Why the heck is the message parsed from behind?
 -----------------------------------------------
 
@@ -227,11 +251,32 @@ And when parsing an existing message in a memory buffer, it generally does not m
 Parsing from behind allows a message creator to write the <field_contents> first without having to know the size in advance, like writing to a stream (assuming the buffer is large enough, reallocating as necessary). Once this has been done, the exact size of the <field_contents> is known, and the writer can choose the most efficient encoding for the field length and write this last.
 
 
-Example field contents encoding
--------------------------------
+I have an 8-bit CPU, I do not want to support 64-bit field sizes
+----------------------------------------------------------------
+
+You don't have to! The fact that hproto messages can contain 64-bit wide size fields does not mean that every conforming application has to support those.
+
+In fact, every hproto implementation is free to typedef a type of its choice for internally storing field sizes.
+
+For instance, an 8-bit implementation may decide to not support any field lengths wider than 8 bits.
+
+Such an implementation must still recognize that a messages includes a 16-, 32- or 64-bit size field if this is the case.
+
+But it is free to reject the reception of such a message with an error message, stating that the message contents exceed the application's limits or that the message itself is too large to be examined.
+
+In fact, even 64-bit implementations of hproto should reject messages of unreasonable sizes. Because otherwise the application could become a victim of dDoS-attacks where an attacker sends gigantic messages until the victim runs out of RAM.
+
+Receivers and senders of hproto messages should share an idea what amount of data to maximally expect in a message, and should refuse to accept messages larger than that. 
+
+Rejecting messages assumed some sort of back-channel of course.
+
+In situations where this is not possible such as using UDP, applications should just ignore messages which are too large or contain field widths for sizes they cannot handle. After all, UDP does not guarantee any reception at all. So the receiver is free to pretend it never got the message.
 
 
-This has been easy because all tag numbers and field contents lengths could be represented directly within <type_octet> and neither <external_tag> nor <external_length> where required.
+More example field contents encodings
+-------------------------------------
+
+The encodings in our first examples have been easy because all tag numbers and field contents lengths could be represented directly within <type_octet> and neither <external_tag> nor <external_length> where required.
 
 So let's define a more complex message which needs both extended fields:
 
@@ -245,9 +290,9 @@ struct person2 {
 }
 
 message person2 {
-   utf8_string first_name: 8;
-   utf8_string last_name: 0x23;
-   uint favorite_fermat_prime: 0x4567;
+   utf8_string first_name:8;
+   utf8_string last_name:0x23;
+   uint favorite_fermat_prime:0x4567;
 };
 
 We use the type "utf8_string" here instead of just "string", because we want to use a particular encoding (UTF-8) for the contents of the string.
@@ -336,9 +381,9 @@ That is, the presence of a "20" field encoding as a message field means the pers
 It is also possible to define a default value in the hproto file. If the field is missing in the message, then the field is assumed to have the default value as its contents.
 
 message person {
-   string first_name: 0;
-   string last_name: 1;
-   string marital_status: 2 = "single";
+   string first_name:0;
+   string last_name:1;
+   string marital_status:2 = "single";
 };
 
 This means that if a field with tag number 2 is present then it represents the marital status as a string. Otherwise, the string "single" will be used as the status even though it is not actually present in the message and would be NULL without the default declaration.
@@ -352,7 +397,7 @@ However, for messages which are to be edited in-place, it might be a good idea t
 For instance, if we want to store a 24-bit RGB color encoded as an unsiged integer 0xRRGGBB
 
 message rgb_color {
-   uint rgb24: 9;
+   uint rgb24:9;
 };
 
 then the color black 0x000000 could easily be encoded as
@@ -366,7 +411,7 @@ However, if we want to make this message editable in-place, we need to ensure th
 This can be enforced as follows:
 
 message rgb_color {
-   uint rgb24: 9 (zero-leftpad to 3 octets);
+   uint rgb24:9 (zero-leftpad to 3 octets);
 };
 
 This means that if the field contents need less then 3 bytes to encode, then it will be padded to 3 bytes by adding zero bytes at the left. "zero-rightpad" does the same but adds the pad bytes at the right side (this type of padding is useful for strings).
@@ -379,26 +424,26 @@ Like for tag numbers, only hexadecimal numbers are allowed for zero-rightpad dec
 
 In the case of this example, "3" means direct encoding within the <type_octet>. It ensures that the color black would be encoded as
 
-93 00 00 00
+00 00 00 93
 
 The "9" is the tag number, the "3" is the field contents width directly encoded in the <type_octet>, and the "00 00 00" is the 24-bit fixed-width RGB encoding of black.
 
 Another example:
 
 message nested_string {
-   string text: 6;
+   string text:6;
 };
 
 message song {
-   uint track: 3 (zero-leftpad to 1 octet);
-   nested_string artist: 5 (zero-rightpad to 0x20 octets);
-   nested_string title: 7 (zero-rightpad to 0x40 octets);
-   nested_string description: 4 (zero-rightpad to 0x400 octets);
+   uint track:3 (zero-leftpad to 1 octet);
+   nested_string artist:5 (zero-rightpad to 0x20 octets);
+   nested_string title:7 (zero-rightpad to 0x40 octets);
+   nested_string description:4 (zero-rightpad to 0x400 octets);
 };
 
 Such a message will have the following encoding:
 
-31 <track_uint> 5c 20 <artist_string>... 7c 40 <title_string>... 4d 04 00 <description>...
+<track_uint> 31 <artist_string>... 20 5c <title_string>... 40 7c <description>... 04 00 4d
 
 Note that the fields ending with "..." are nested fields which include their own length. The idea is that the "inner" length specifications define the actual length of the field contents, where the zero-rightpad width just ensures that there is enough space for increasing the inner length in-place.
 
