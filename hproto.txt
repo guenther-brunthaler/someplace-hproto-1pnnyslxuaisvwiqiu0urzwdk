@@ -1,5 +1,7 @@
 hproto - Human-friendly binary protocol message encoding
 ========================================================
+Guenther Brunthaler
+v2019.273
 
 Introduction
 ------------
@@ -17,6 +19,234 @@ In this regard, hproto is similar to BENCODE, although the actual encoding is mu
 Like MessagePack, hproto also sacrifices some encoding efficiency for simplicity, resulting in an encoding which is less compact than "protocol buffers" or "aproto", but not by much.
 
 hproto has also some provisions for optionally allowing to define messages in such a way so that they can be modified in-place. This is not as powerful als Google's "flatbuffers" which have been created explicitly for this purpose, but also much simpler to implement and understand.
+
+
+Quick examples
+--------------
+
+hproto encodes a message by emitting the encodings of all the fields in the message. The following examples will only show messages consisting of a single field.
+
+Every field is encoded by a dump of its encoded data, followed by a control octet which specifies the field name (as an associated numeric tag value) in its most significant nybble (4 bits), and the octet count of the encoded dump in its least significant nybble.
+
+All examples here use the same field name, which is associated with the arbitrary numeric tag value 12 (0x0c in hexadecimal).
+
+Hex dump of the encoding for integer 3 as field value:
+
+----
+03 c1
+----
+
+The first octet is just the integer value. The last octet is the control octet where 'c' encodes the tag value 12, and '1' is the byte count of the data part of the encoding
+
+Encoding of integer value 0x123:
+
+----
+01 23 c2
+----
+
+This is quite similar, but the encoded data part is 2 bytes now, which is also indicated by the least significant 4 bits of the control octet.
+
+Naive encoding of integer 0:
+
+----
+00 c1
+----
+
+However, this can be shortened because there is a special rule: Numeric fields encoded as having an octet size of zero automatically represent value 0.
+
+Therefore, integer 0 could be also encoded more efficiently as
+
+----
+c0
+----
+
+Encoding of ASCII string "Hello":
+
+----
+48 65 6c 6c 6f c5
+----
+
+The first 5 octets just represent the ASCII dump of the string, and the control octet again reflects this size in its low-order nybble.
+
+Note that the fact that this is an ASCII string rather than an integer value cannot be known from the encoding itself. This knowledge instead comes from the associated protocol definition, which in this case would define the field with tag number 12 as representing an ASCII string.
+
+Encoding of signed integer -0x1234567:
+
+----
+81 23 45 67 c4
+----
+
+Signed integers are encoded in hproto by reserving the leftmost bit of the data hex dump as a sign bit. The value itself is always stored in absolute form, i. e. as a positive value. The sign bit then decides whether this positive value shall actually be negated when decoding.
+
+Encoding if signed integer -0xaaaa:
+
+----
+80 aa aa c3
+----
+
+In order to avoid negative zero, there is a special rule: The encoding which would represent -0 shall instead represent its negated own literal value.
+
+That is, the signed integer encoding of
+
+----
+80 c1
+----
+
+does not represent -0 but rather -0x80, because 0x80 is the literal value of the encoding, and -0x80 is that value negated.
+
+Note that this does not forbid to encode -0x80 less efficiently as
+
+----
+80 80 c2
+----
+
+but encoders should prefer the shorter encoding, making use of the special rule.
+
+By making use of the rule, the hproto encodings of all signed integers will always have the same (or shorter) size than the traditional 2's complement encoding of the same integer.
+
+For instance, a fixed 32-bit signed integer variable containing the value -1 would represented as 'ff ff ff ff' in memory, but hproto can encode it shorter as
+
+----
+81 c1
+----
+
+which is the positive value 0x01 with the sign-bit set (which adds 0x80).
+
+One might wonder what hproto does if the tag number is larger than 15 or when the data part is longer than 15 bytes.
+
+For those cases, an extension mechanism has been put in place.
+
+The last 2 values of the "tag" nybble and the last 4 values of the "length" nybble are reserved for that extension mechanism.
+
+If a value reserved for the extension mechanism is used in either nybble of the control octet, then extension fields are inserted before the control octet, and the nybble values specify the octet size of the inserted extension fields.
+
+In this case, the extension field contents represent the actual values which were too large to be represented as nybble values.
+
+In the case of the "tag" nybble, the 2 reserved values specify the size of the extension field linearly: 0xe means 1 octet and 0xf means 2 octets as the size of the inserted extension field for the "tag" value.
+
+That is, the encoding for integer 5 which does not need an extension field for its tag value 0x0c
+
+----
+05 c1
+----
+
+could also be encoded less efficiently using an inserted one-byte extension field for the tag value as
+
+----
+05 0c e1
+----
+
+or even less efficiently using an inserted two-byte extension field
+
+----
+05 00 0c f1
+----
+
+Note that the insertion of the extension field did not change the byte count of the data part - it is still just one octet in both cases.
+
+Also note that the extension fields are encoded as big-endian integers, just like all values in hproto. This is because big-endian numbers are more human-friendy to read than little-endian numbers in a hex dump.
+
+In the case of "length" nybble, the 4 reserved values specify the size of the extension field as a power of 2: 0xc means 1 octet, 0xd means 2 octets, 0x0e means 4 octets, and 0x0f means 8 octets.
+
+That is, the encoding of integer 6 which does not need an extension field for its octet count of 1
+
+----
+06 c1
+----
+
+could also be encoded less efficiently using an inserted one-byte extension field for the "length" field as
+
+----
+06 01 cc
+----
+
+or even less efficiently using a two-byte "length" extension field
+
+----
+06 00 01 cd
+----
+
+or with a 4 byte length
+
+----
+06 00 00 00 01 ce
+----
+
+or with an 8 byte length
+
+----
+06 00 00 00 00 00 00 00 01 cf
+----
+
+It is possible that both extension fields are present, one for the tag and one for the length. In this case, the extension field for the tag comes first (lower address) and the length extension field comes second (higher address). That relative order is easy to remember, because it is the same relative order as the associated nybbles within the control octet.
+
+Both extension fields are then inserted between the actual data-part and the control octet.
+
+Encoding of ASCII string "Hello, world" (with a size of 12 octets, its last octet has value 0x64) as a field with field tag number 0x1234:
+
+----
+48 65 6c 6c 6f 2c 20 77 6f 72 6c 64 12 34 0c fc
+----
+
+To break this down for decoding, markers could be inserted as follows:
+
+----
+48 65 6c 6c 6f 2c 20 77 6f 72 6c 64 [12 34 | 0c | fc]
+----
+
+Control octet 0xfc specifies that a 2-octet tag extension field and a 1-octet length extension field is present.
+
+The 2 octets '12 34' represents the field tag number, and the '0c' represents the length of the data-part.
+
+The remaining octets before that which end with value 0x64 represent the data-part (i. e. the payload of the field).
+
+As explained before, messages are just a concatenation of the message field encodings.
+
+Therefore, a 3D-vector could be encoded as a message consisting of 3 signed integer fields, where the "x"-field is represented by tag value 0, "y" as 2 and "z" as 3.
+
+Encoding the co-ordinates (-2, +0x113854, -0x10) as such a message then results in
+
+----
+82 01 11 38 54 13 90 21
+----
+
+To break this down for decoding, the control-octets could be enclosed within brackets as
+
+----
+82 [01] 11 38 54 [13] 90 [21]
+----
+
+This shows clearly what the data-part of the encoding is, and what the control-part (control octets and their optional extension fields) is.
+
+It has been explained that encoded messages have to be parsed starting at the end of the message, because the control octets where the decoding process starts always come last.
+
+This is fine in situations where the length of the received message is known in advance.
+
+But what if the data arrives as a stream instead of a sequence of records with known size?
+
+For this case, there is one final encoding type left to explain: Simple message framing within data streams. It works as follows:
+
+02 42 c1
+
+frames the message consisting of "42 c1" by prefixing it with the message length, which is two octets in this case.
+
+The prefixing works very similar to the "length" nybble, only that it is not just a nybble but rather a whole octet. And it describes data which follows, rather than data before it (like in the control octet for a message field).
+
+And also the same as for the length nybble, the last 4 values are set aside to encode extension field lengths in the same way as for the nybble. Except that the extension field follows the prefix octet rather than preceding it.
+
+This means the following values are used for the message framing prefix octet:
+
+* 0x00-0xfb: The value represents the message length directly as one octet.
+* 0xfc: The message length follows as a 1-octet extension field
+* 0xfd: The message length follows as a 2-octet extension field
+* 0xfe: The message length follows as a 4-octet extension field
+* 0xff: The message length follows as a 8-octet extension field
+
+In all cases, the framed message follows the message length field with the indicated length.
+
+It may seem doubtful that 0xfc will be very useful. It would have been better to only set aside 3 special values and start with the 2-octet case.
+
+But as this is a human-friendly protocol, it should be easy to remember. Also reserving 4 codes here in the same way as for the length nybble is easier to remember. And so we do it that way!
 
 
 Protocol definition syntax
@@ -205,6 +435,8 @@ The byte size of the field contents is encoded directly within <type_octet> if i
 The byte size of the <external_tag> field itself is determined by the value of the left hex-digit in <type_octet>: 1 if it is 0x0e, 2 if it is 0x0f, 0 otherwise.
 
 The byte size of the <external_length> field itself is determined by the value of the right hex-digit in <type_octet>: 1 if it is 0x0c, 2 if it is 0x0d, 4 if it is 0x0e, 8 if it is 0x0f, 0 otherwise.
+
+Maybe it might be easier to remember that the last 2 values of the "tag" nybble are reserved for specifying the length of the tag value extension field, and the last 4 values of the "length" nybble are reserved for specifying the length of the octet count extension field as a power of 2.
 
 That's all one needs to know for the encoding of the basic message structure!
 
