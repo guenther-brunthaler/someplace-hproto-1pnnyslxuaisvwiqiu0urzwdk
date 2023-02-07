@@ -1,1 +1,1 @@
-"utf16_be_string" (UUID gyn6scskqnk1tq3lez6kk4qrr) - a UNICODE string in UTF-16BE encoding without a particular normalization form (see "uft8_string"). No BOM is used, big-endian representation is mandatory.
+"utf16_be_string" (UUID gyn6scskqnk1tq3lez6kk4qrr) - a UNICODE string in UTF-16BE encoding without a particular normalization form (see "utf8_string"). No BOM is used, big-endian representation is mandatory. External types referenced from within this type definition: "utf8_string" (UUID gyllbf12kq6ssjfe49w32usk7).

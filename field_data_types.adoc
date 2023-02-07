@@ -1,6 +1,6 @@
 Predefined field data types and associated wire encodings
 =========================================================
-v2023.38
+v2023.38.1
 
 The basic wire-encoding does not care about field types. Those must be learned by looking into the declarations of the protocol definition files. The wire-encoding treats all data types just as opaque octet-strings.
 

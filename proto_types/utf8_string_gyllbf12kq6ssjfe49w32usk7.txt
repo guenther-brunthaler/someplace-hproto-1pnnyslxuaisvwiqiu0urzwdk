@@ -1,1 +1,1 @@
-"utf8_string" (UUID gyllbf12kq6ssjfe49w32usk7) - a UNICODE string in UTF-8 encoding without a particular normalization form. That is, such a strings may contain a mixture of NFC- and NFD-encoded UNICODE characters.
+"utf8_string" (UUID gyllbf12kq6ssjfe49w32usk7) - a UNICODE string in UTF-8 encoding without a particular normalization form. That is, such a strings may contain a mixture of NFC- and NFD-encoded UNICODE characters. No BOM is expected or interpreted. If an UTF-8 BOM is present, it will be processed like any other UTF-8 character with no special consideration.

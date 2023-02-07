@@ -1,1 +1,1 @@
-"ubcd4_4" (UUID sm7f9ad5z6e8309xvz9b4nw1c): BCD with 4 implied fractional digits. Stores the number multiplied by 10^4^ as a "ubcd4_0".
+"ubcd4_4" (UUID sm7f9ad5z6e8309xvz9b4nw1c): BCD with 4 implied fractional digits. Stores the number multiplied by 10^4^ as a "ubcd4_0". External types referenced from within this type definition: "ubcd4_0" (UUID gz4iq2ncpil0busszjyyzcayi).
