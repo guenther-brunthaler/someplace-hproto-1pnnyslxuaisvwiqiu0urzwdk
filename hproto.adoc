@@ -1,7 +1,8 @@
 hproto - Human-friendly binary protocol message encoding
 ========================================================
 Guenther Brunthaler
-v2023.38
+v2023.38.1
+
 
 Introduction
 ------------
@@ -12,7 +13,7 @@ It is used by a sending process to encode ("marshal") the data structure of a so
 
 The scope of application for 'hproto' is also similar to that of 'XML', 'YAML', 'RFC-822' and 'JSON', except that 'hproto' is not a text-based encoding.
 
-The outstanding property of 'hproto' is the fact that the encoding is simple enough that an encoded message can be decoded by a human with the help of a hexadecimal dump of the message contents relatively easily.
+The outstanding property of 'hproto' is the fact that the encoding is simple enough that an encoded message can be decoded by a human with the help of a hexadecimal dump of the message contents relatively easily. This is achieved by avoiding encodings that require bitwise operations (such as 2's complement negation) or bit shifting other than by multiples of 4 bits.
 
 In this regard, 'hproto' is similar to 'BENCODE', although the actual encoding is much more similar to 'protocol buffers'.
 
@@ -76,49 +77,35 @@ Encoding of signed integer ("`int`") `-0x1234567`:
 c4 81 23 45 67
 ....
 
-Signed integers are encoded in 'hproto' by reserving the leftmost bit of the data hex dump as a sign bit. The value itself is always stored in absolute form, i. e. as a positive value. The sign bit then decides whether this positive value shall actually be negated when decoding.
+Signed integers are encoded in 'hproto' using the "inth" message field type by reserving the leftmost nybble (a group of 4 consecutive bits) of the data hex dump as a sign indicator. The nybble-value 8 specifies a negative number, like a minus sign. Any other leftmost nybble specifies a positive number. The value of the number itself is always stored in absolute form, i. e. as a positive value. The sign bit then decides whether this positive value shall actually be negated when decoding.
 
-Encoding of signed integer `-0xaaaa`:
+Note that there is also a field type "int", but it is not human-friendly for decoding negative numbers and we will therefore avoid using it in hproto applications. "inth" is the human-friendly alternative to "int".
+
+You might also wonder why the type is called "inth" rather than "hint"? Well, "hint" might trigger unwanted connotations with the unrelated English word "hint", and so this potential type name was avoided. There is still potential for unwanted connotations with hyperbolical functions like "tanh", but it should be clear from the context that those do not apply. Wheras a "hint" is sounds useful in every context.
+
+Encoding of signed integer `-0xaaaa` as an "inth":
 
 ....
 c3 80 aa aa
 ....
 
-In this case it was necessary to add a third octet to the left of the data part for storing the sign bit, because the leftmost bit of the 2-octet representation of the value was already in use by the value itself, and could therefore not be re-purposed as a sign bit.
+In this case it was necessary to add a third octet to the left of the data part for storing the sign nybble, because the leftmost nybble of the 2-octet representation of the value was already in use by the value itself, and could therefore not be re-purposed as a sign bit.
 
-In order to avoid negative zero, there is a special rule: The encoding which would represent `-0` shall instead represent its negated own literal value.
-
-That is, the signed integer encoding of
+Encoding of signed integer `0x80` as an "inth":
 
 ....
-c1 80
+c2 00 80
 ....
 
-does not represent `-0` but rather `-0x80`, because `0x80` is the literal value of the encoding, and `-0x80` is that value negated.
+This is because c1 80 alone would have been mis-interpreted as -0, so another octet had to be prepended in order to ensure the most significant nybble is no longer the special value 8 (which would have been interpreted as a negative sign).
 
-Note that this does not forbid to encode `-0x80` less efficiently as
-
-....
-c2 80 80
-....
-
-but encoders should prefer the shorter encoding, making use of the special rule.
-
-By making use of the rule, the 'hproto' encodings of all signed integers will always have the same (or shorter) size than the traditional 2's complement encoding of the same integer.
-
-For instance, a fixed 32-bit signed integer variable containing the value `-1` would represented as `ff ff ff ff` in memory, but 'hproto' can encode it shorter as
-
-....
-c1 81
-....
-
-which is the positive value `0x01` with the sign-bit set (which adds `0x80`).
+Note that the special value 8 as a minus sign in the most significant nybble has only relevance for signed integers. Unsigned integers do not require nor use such a special rule.
 
 One might wonder what 'hproto' does if the tag number is larger than 15 or when the data part is longer than 15 bytes.
 
 For those cases, an extension mechanism has been put in place.
 
-The last 2 values of the 'tag' nybble and the last 4 values of the 'length' nybble are reserved for that extension mechanism.
+The last 2 possible values of the 'tag' nybble and the last 4 possible values of the 'length' nybble are reserved for that extension mechanism.
 
 If a value reserved for the extension mechanism is used in either nybble of the control octet, then extension fields are inserted after the control octet, and the nybble values specify the octet size of the inserted extension fields.
 
@@ -142,7 +129,7 @@ where the `"e"`-nybble of `0xe1` tells the reader that the following `0x0c` octe
 
 The `"1"`-nybble of `0xe1` is not a value indicating an extension field, and so it just represents the data part length of `1` octet (which is the `0x05` that follows the extension field).
 
-or even less efficiently using an inserted two-byte extension field
+The same field could be encoded even less efficiently using an inserted two-byte extension field
 
 ....
 f1 00 0c 05
@@ -205,7 +192,7 @@ fc 12 34 0c 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64
 To break this down for decoding, markers could be inserted as follows:
 
 ....
-fc | 12 34 | 0c | 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64
+[fc | 12 34 | 0c | 48 65 6c 6c 6f 2c 20 77 6f 72 6c 64]
 ....
 
 Control octet `0xfc` specifies that a 2-octet 'tag' extension field and a 1-octet 'length' extension field is present.
@@ -224,13 +211,15 @@ Encoding the co-ordinates `(-2, +0x113854, -0x10)` as such a message then result
 01 82 13 11 38 54 21 90
 ....
 
-To break this down for decoding, the control-octets could be enclosed within brackets as
+To break this down for decoding, the encoded fields could be enclosed within brackets as
 
 ....
-[01] 82 [13] 11 38 54 [21] 90
+[01 ||| 82] [13 ||| 11 38 54] [21 ||| 90]
 ....
 
-This shows clearly what the data-part of the encoding is, and what the control-part (control octets and their optional extension fields) is.
+Note that I always use vertical bars to separate control octet, both extension fields and the value. In cases where an extension field is missing, there is nothing between the corresponding bars. Only in cases where just the control octet is present, all the bars are omitted.
+
+The first item between every pair of brackets is also the control field. It is separated from the encoding of the actual field value with a vertical bar. In case of extension fields, those are also separated with vertical bars. The actual field value always comes last within a bracketed group, after the group's last vertical bar.
 
 The encoding explained so far is easy to parse from the beginning, but there is no way how to indicate its end. This needs to be known by the decoder.
 
@@ -307,9 +296,9 @@ This defines the fields which are allowed in the message and also assigned numer
 
 The syntax for the field numbers looks similar to that of bit fields in C. However, it is recommended not to put a space between the field number and the field name, because otherwise the inclusion of a default value (explained later) might look ugly.
 
-The tag numbers should be thought of as name suffixes rather than independent properties of the message field definitions.
+Also, omitting a separating space makes it clearer that the tag number and the name before it are tightly coupled. The tag numbers should be thought of as name suffixes rather than independent properties of the message field definitions.
 
-Other than the field names which are only required in the proto files, the field tag numbers will actually be part of the encoded binary message as "tags numbers".
+Unlike the field names which are only required in the hproto files, the field tag numbers will actually be part of the encoded binary message as "tags numbers".
 
 Also note that the field/tag numbers must be specified as hexadecimal values, even though there is no `0x`-prefix allowed for values up to 9, yet such a prefix is required for values larger than 9. The reason for the requirement of hexadecimal tag numbers is that a hex dump of the encoded message will also show hexadecimal tag numbers. By defining them them in the same way in the protocol definition, not conversion between decimal and hexadecimal tag numbers will be needed.
 
@@ -329,9 +318,9 @@ This means we should encode the 'born:2' field first, because it comes last in t
 
 So we need to encode the value `1990` as type "`uint`" and associate it with the field number `2` as its tag value.
 
-Im 'hproto', "`uint`" is just the big-endian base-256 representation of the unsigned integer. As a special optimization, an `uint` with a data portion size of 0 bytes is allowed and then represents the numeric value zero. (This might be a very useful optimization, because zero is a very frequent value in many applications.)
+In 'hproto', "`uint`" is just the big-endian base-256 representation of the unsigned integer. As a special optimization, an `uint` with a data portion size of 0 bytes is allowed and then represents the numeric value zero. (This might be a very useful optimization, because zero is a very frequent value in many applications.)
 
-Next we need to know that "big-endian base-256 representation" is just a pompous way of saying that the hex dump of the encoded unsigned integer looks exactly the same as the integer written as a multi-digit hexadecimal number with a leading `0` digit in case of an odd number of hexadecimal digits in the multi-digit representation.
+Next we need to know that "big-endian base-256 representation" is just a pompous way of saying that the hex dump of the encoded unsigned integer looks exactly the same as the integer written as a multi-digit hexadecimal number (with a leading `0` digit in case of an odd number of hexadecimal digits) in the multi-digit representation.
 
 Example: Hex integer `0x1a` will encode as hex dump "`1a`", `0xf` will encode as hex dump "`0f`", `0x12345` will encode as hex dump "`01 23 45`" etc. Simple!
 
@@ -384,7 +373,7 @@ We encode this as the hex bytes
 13 44 6f 65
 ....
 
-The "`1`" in the initial "`13`" is the field tag for "`last_name`". The "`3`" is the length of the string.
+The "`1`" in the initial "`13`" is the field tag for "`last_name`". The "`3`" is the length of the string. Note that the `hexdump` command also told us that length by displaying `00000003` as the output offset following the last byte of the output's contents.
 
 We prepend this new encoding before the start of the message already encoded so far, getting
 
@@ -426,18 +415,18 @@ as the finally completed encoded 'hproto' message.
 For decoding this message, one has to start from the right and cut the message into fields based on the length of the field's control octets:
 
 ....
-[04] 4a 6f 68 6e | [13] 44 6f 65 | [22] 07 c6
+[04 ||| 4a 6f 68 6e] [13 ||| 44 6f 65] [22 ||| 07 c6]
 ....
 
-I have used "|" here to show field boundaries and put the control octets within square brackets.
+I have used "|" here again to separate the control octets from the actual encoding of the field values, and put square brackets around each total field encoding.
 
 Now for another example: Given the 'hproto' definition
 
 ----
 message coord3d {
-   int x:0;
-   int y:1;
-   int y:2;
+   inth x:0;
+   inth y:1;
+   inth y:2;
 };
 ----
 
@@ -450,28 +439,28 @@ decode the following encoding for an instance of such a message:
 Let's start decoding by adding field markers as visual clues:
 
 ....
-[01] 4a | [10] | [21] 8b
+[01 ||| 4a] | [10] | [21 ||| 8b]
 ....
 
 and decode this as:
 
 ....
-field #0 ("x") = int_decode(0x4a) = 37
-field #1 ("y") = int_decode(0x00) = 0
-field #2 ("z") = int_decode(0x8b) = -11
+field #0 ("x") = inth_decode(0x4a) = 37
+field #1 ("y") = inth_decode(0x00) = 0
+field #2 ("z") = inth_decode(0x8b) = -11
 ....
 
-Where came the `0x00` for field "`y`" from? Well, as explained before, a zero-sized numeric fields (such as "int") represents the numeric value zero even though no space for the actual value has been included in the message.
+Where came the `0x00` for field "`y`" from? Well, as explained before, a zero-sized numeric fields (such as "inth") represents the numeric value zero even though no space for the actual value has been included in the message.
 
-Why is the decoding of `0x8b` the value `-11`? Remember that 'hproto' does not use 2's complement numbers because those are not human-friendly. It just adds a `1` bit at the most significant octet of the encoding, which is the same as adding the value `0x80`. This means the encoded value `0x8b` is actually the sum of `0x80' for the negative sign plus the absolute value `0x0b` of the actual value to be encoded. `0x0b` is `11` as decimal number, and the negative sign makes it `-11` as the decoded result.
+Why is the decoding of `0x8b` the value `-11`? Remember that 'hproto' does not use 2's complement numbers because those are not human-friendly. It uses a most significant nybble containing the value 8 to indicate that the value in the remaining nybbles must be negated when decoding. This means the encoded value `0x8b` is actually a negative sign followed by the value 0xb, which is `11` as decimal number, and the negative sign makes it `-11` as the decoded result.
 
 So, the message decodes as
 
 ----
 message coord3d {
-   int x:0;
-   int y:1;
-   int y:2;
+   hint x:0;
+   hint y:1;
+   hint y:2;
 }= {37, 0, -11};
 ----
 
@@ -479,7 +468,7 @@ message coord3d {
 A historic note about the reverse encoding direction
 ----------------------------------------------------
 
-A previous version of 'hproto' did things exactly the other way around: The decoder wrote starting at the beginning of the buffer, so it was easy to grow it using realloc if necessary without moving the already-encoded parts of the buffer after the reallocation.
+A previous version of 'hproto' did things exactly the other way around: The decoder wrote starting at the beginning of the buffer, so it was easy to grow it using `realloc()` if necessary without moving the already-encoded parts of the buffer after the reallocation.
 
 However, the disadvantage was that now decoders needed to start decoding at the end of the buffer, moving towards decreasing offsets as the decoding progressed.
 
@@ -495,7 +484,7 @@ But most of all, decoding something backwards is not human-friendly.
 
 So, after careful consideration, the encoding process was reversed, yielding to encoded messages which seem more "natural" to a human reader.
 
-The only real disadvantage is that the new scheme requires a `memmove()` after a `realloc()` when the message is growing and the currently allocated buffer turns out to be too small.
+The only real disadvantage is that the new scheme requires a `memmove()` after a `realloc()` when the message is growing and the currently allocated encoding buffer turns out to be too small.
 
 The old approach did not need to move the data to the new end of the buffer, because the data already written was located at the beginning of the buffer.
 
@@ -511,7 +500,7 @@ Finally, `realloc()` probably has a lot more overhead than a single `memmove()`,
 
 Examples are fun. But now for the full picture!
 
-A 'hproto' message encoding is an unordered collection of fields, much more like a hash rather than a `C` "`struct`". The fields within the message are identified by their tag number rather than by their order.
+A 'hproto' message encoding is an unordered collection of fields, much more like a hash rather than a `C` "`struct`". The fields within the message are identified by their tag number rather than by their order. Tag numbers have a one-to-one correspondence with field names.
 
 The actual message encoding is just a concatenation of field value encodings.
 
@@ -648,6 +637,30 @@ This means it is not necessary to specify maximum sizes for individual message f
 What happens if multiple fields have the same tag number
 --------------------------------------------------------
 
+First one needs to know that tag numbers are always relative to a particular defined message type. Another way to see it is that tag numbers are namespaced by the message type.
+
+That means, that the same tag 0xc refers to completely different fields in two different message definitions. So the following declarations within the same hproto file are allowed:
+
+message Person {
+   utf8_string first_name:0, last_name:1;
+};
+message AcademicPerson {
+   Person who:0;
+   utf8_string degree:1;
+};
+
+Here the tags 0 and 1 mean totally different things within both messages. But this is OK, because the tag numbers are namespaced by the message type names.
+
+Note that who:0 is not some inherited field from a superclass, but just an embedded instance of that other class. Such embedded messages will be serialized independently and stored as byte strings, avoiding any name clashes with tags contained within that encoding.
+
+But now back to the initial question of this section: In a message definition, the protocol compiler (yet to be written) will ensure that there are no duplicate field names or duplicate tag numbers within the same message (possibly aside from nested messages where it will not hurt).
+
+But it is still possible that an encoded message contains multiple fields for the same message (not nested ones) which use the same tag number.
+
+This means, that the same field is present multiple times within the same message.
+
+What happens then?
+
 In this case, the field is considered to contain a vector of elements with the field's defined type rather than a single field element.
 
 Of course, "multiple fields" are interpreted that way only within the same message, not within nested messages or a parent message containg the current message. In the latter cases, the fields belong to different messages and do not represent a vector.
@@ -659,10 +672,10 @@ For a vector, only the relative order of vector elements is relevant for indexin
 For instance, consider this message encoding:
 
 ....
-[11] 11 | [21] 22 | [31] 33 | [21] 44 | [11] 55 | [21] 66
+[11 ||| 11] [21 ||| 22] [31 ||| 33] [21 ||| 44] [11 ||| 55] | [21 ||| 66]
 ....
 
-then this represents the following messsag fields:
+then this represents the following messsage fields:
 
 ...
 tag 1: vector[0x11, 0x55]
@@ -675,6 +688,8 @@ There is no actual difference between a scalar and a 1-element vector - the appl
 But what shall be done if the application expects a scalar and a vector is encountered instead?
 
 In this case, the decoder shall ignore all values except for the last vector element. That shall be used as the scalar value.
+
+In an actual implementation, the reader will recognize all vector elements using the same tag, but more of the same tags following shall overwrite the extracted value, and so the last extracted value "wins".
 
 
 More example field contents encodings
@@ -722,7 +737,7 @@ where "`x`" does not matter in this discussion (it represents the field length).
 Now let's encode the actual fields:
 
 ----
-$ # utf8_string first_name: 8 = UTF7_2_UTF8("G+APw-nther")
+$ # utf8_string first_name:8 = UTF7_2_UTF8("G+APw-nther")
 $ printf %s G+APw-nther | iconv -f UTF-7 -t UTF-8 | hexdump -C
 00000000  47 c3 bc 6e 74 68 65 72                           |G..nther|
 00000008
@@ -731,11 +746,11 @@ $ printf %s G+APw-nther | iconv -f UTF-7 -t UTF-8 | hexdump -C
 These are `8` 'UTF-8' bytes with field tag `8`, which will be encoded as
 
 ....
-[88] 47 c3 bc 6e 74 68 65 72
+[88 ||| 47 c3 bc 6e 74 68 65 72]
 ....
 
 ----
-$ # utf8_string last_name: 0x23 = "Brunthaler"
+$ # utf8_string last_name:0x23 = "Brunthaler"
 $ printf %s Brunthaler | iconv -t UTF-8 | hexdump -C
 00000000  42 72 75 6e 74 68 61 6c  65 72                    |Brunthaler|
 0000000a
@@ -744,15 +759,15 @@ $ printf %s Brunthaler | iconv -t UTF-8 | hexdump -C
 This are `0x0a` bytes with field tag `0xe23`, which will be encoded as
 
 ....
-[ea | 23] 42 72 75 6e 74 68 61 6c 65 72
+[ea | 23 || 42 72 75 6e 74 68 61 6c 65 72]
 ....
 
-I have used here the square brackets not only to enclose the control octet, but the extension fields as well. The control octet and the fields are separated by "|", which will also be used to separate the encoding of different fields (outside the square brackets).
+Remember that I use vertical bars to separate the control octet, the extension tag field, the extension length field, and the actual encoding unless there is just a control octet in which case the bars are omitted entirely.
 
-In the above encoding, the "`23`" is the `<external_tag>` which is present because the "`e`" in the "`ea`" defines a 1-byte `<external_tag>` to be present. The "`a`" in the "`ea`" is the byte length of the 'UTF-8' encoded string, and the remaining bytes represent the string contents.
+In the above encoding, the "`23`" is the `<external_tag>` which is present because the "`e`" in the "`ea`" defines a 1-byte `<external_tag>` to be present. The "`a`" in the "`ea`" is the byte length of the 'UTF-8' encoded string, and the remaining bytes represent the string contents. There is no `<external_length>` in this case, and so there is nothing between the second and third vertical bar.
 
 ----
-$ # uint favorite_fermat_prime: 0x4567 = STR_2_BIGINT("162259276829213363391578010288127"
+$ # uint favorite_fermat_prime:0x4567 = STR_2_BIGINT("162259276829213363391578010288127"
 $ echo "obase=16; 162259276829213363391578010288127" | bc | tr A-F a-f | { read x; expr ${#x} % 2 != 0 > /dev/null && x=0$x; printf '%02x\n' `expr ${#x} / 2`; echo $x | fold -w 2 | paste -s -d " "; }
 0e
 07 ff ff ff ff ff ff ff ff ff ff ff ff ff
@@ -761,7 +776,7 @@ $ echo "obase=16; 162259276829213363391578010288127" | bc | tr A-F a-f | { read 
 The first line of the output is the number (`0x0e`) of the following bytes, and the second line is just the hexadecimal representation of the large prime number. We encode this as
 
 ....
-[ fc | 45 67 | 0e ] 07 ff ff ff ff ff ff ff ff ff ff ff ff ff
+[ fc | 45 67 | 0e | 07 ff ff ff ff ff ff ff ff ff ff ff ff ff]
 ....
 
 The "`f`" in the "`fc`" means that we use a 2-byte `<external_tag>`, which is represented by the bytes "`45 67`" which are the big-endian base-256 representation of the value `0x4567`.
@@ -782,13 +797,15 @@ ff ff ff ff  ff ff ff
 Here is a chart for decoding 'hproto' messages based on their hex dump (starting with the first byte of the actual message, after any size framing prefix):
 
 * `0? - d?`: Tag number is directly encoded as `0x0` through `0xd`.
-* `e?`: Tag number precedes as 1 byte
-* `f?`: Tag number precedes as 2 bytes (big-endian base-256 representation)
+* `e?`: Tag number present as 1 byte <external_tag>
+* `f?`: Tag number present as 2 bytes <external_tag>
 * `?0 - ?b`: Field contents byte length is directly encoded as `0x0` through `0xb`.
-* `?c`: Contents length precedes as 1 byte
-* `?d`: Contents length precedes as 2 bytes (big-endian base-256 representation)
-* `?e`: Contents length precedes as 4 bytes (big-endian base-256 representation)
-* `?f`: Contents length precedes as 8 bytes (big-endian base-256 representation)
+* `?c`: Contents length present as 1 byte <external_length>
+* `?d`: Contents length present as 2 bytes <external_length>
+* `?e`: Contents length present as 4 bytes <external_length>
+* `?f`: Contents length present as 8 bytes <external_length>
+
+All multibyte-valies use big-endian base-256 representation.
 
 In all cases, the optional `<external_tag>` precedes the optional `<external_length>`, and both are located between `<type_octet>` and `<field_contents>`.
 
@@ -796,17 +813,17 @@ After those examples, some clarifications.
 
 There are no "required" fields in a message. All fields can be missing, which will then behave like a "`NULL`" value in 'SQL' (i. e. "value not present").
 
+Alternatively, a default value may be defined for each field. In this case, if the field is not present at all in a message, it will be assumed to be implicitly present containing the default value (or the value 0 otherwise).
+
 ----
 message person {
    string first_name:0;
    string last_name:1;
-   opt married:2;
+   boolean married:2 = true;
 };
 ----
 
-If the type "`opt`" has been defined as an empty message with no fields (encoded as "`20`" for tag number `2` and zero length) and the presence of the field means the option applies, then the missing field means that the option does not apply.
-
-That is, the presence of a "`20`" field encoding as a message field means the person is married. Otherwise the person is not married.
+This means that the person is implicitly married unless a value for the field is present which says otherwise. Because 'false' is encoded as a value of 0 and 0 is the default value for any present but empty field, the precence of the encoding "`20`" means the person is not married.
 
 It is also possible to define a default value in the 'hproto' file. If the field is missing in the message, then the field is assumed to have the default value as its contents.
 
@@ -852,9 +869,9 @@ message rgb_color {
 };
 ----
 
-This means that if the field contents need less then 3 bytes to encode, then it will be padded to 3 bytes by adding zero bytes at the left. "`zero-rightpad`" does the same but adds the pad bytes at the right side (this type of padding is useful for strings).
+This means that if the field contents need less then 3 bytes to encode, then it will be padded to 3 bytes by adding zero bytes at the left. "`zero-rightpad`" does the same but adds the pad bytes at the right side (this type of padding is useful for null-terminated "C"-strings).
 
-The term "octet" is used instead of "byte" to make clear that 8-bit bytes are meant. Historically, bytes with bit sizes other than 8 bits are known to have existed on some hardware platforms. "octet" always means an "8 bit byte".
+The term "octet" is used instead of "byte" to make clear that 8-bit bytes are meant. Historically, bytes with bit sizes other than 8 bits are known to have existed on some hardware platforms. "octet" always means an "8-bit byte".
 
 Generally, a comma-separated list of such and similar attribute declarations can be placed within parentheses before the end of the field declaration.
 
@@ -887,10 +904,113 @@ Such a message will have the following encoding:
 
 ....
 31 <track_uint> 5c 20 <artist_string>...
-7c 40 <title_string>... 4d 04 00 <description>... 
+7c 40 <title_string>... 4d 04 00 <description_string>... 
 ....
 
 Note that the fields ending with "..." are nested fields which include their own length. The idea is that the "inner" length specifications define the actual length of the field contents, where the `zero-rightpad` width just ensures that there is enough space for increasing the inner length in-place.
+
+
+Globally unique fields data types
+---------------------------------
+
+As explained before, field names in messages correspond directly with tag numbers, and only the latter one are actually present in the serialized messages.
+
+Also, both field names and tag numbers are always namespaced by the enclosing message declaration, much like "struct" member fields in "C".
+
+This means there is no chance of name clashes - the namespacing safeguards against this.
+
+However, this is not true for data type names like "uint", "string" or "inth". Those are global definitions, and as such may be subject to name clashes.
+
+In order to avoid this, every data type name has been associated with a UUID (called "GUID" in the Microsoft world).
+
+Therefore, the protocol definitions shown so far have not been complete. They also need "map"-Statements for associating type names with UUIDs. For instance,
+
+----
+map uint = gyic709md7c9icf8wl1akdcq7;
+map inth = 69gkf6phdzlu9z19gd9j0qq7i;
+map string = smap94sqt5kfn6pee6ash6qr1;
+map utf8_string = gyllbf12kq6ssjfe49w32usk7;
+----
+
+Those declarations act as sort of an "import"-statement, ensuring that the correct codecs will be associated with the human-readable names.
+
+This also allows to change the type names within the .hproto files. You don't like `inth` and prefer to just call it `int`, even though there already is a different type of that name known? You want `u8str` better than `utf8_string`? And `str` instead of `string`?
+
+Not a problem, just change the lines from above into
+
+----
+map uint = gyic709md7c9icf8wl1akdcq7;
+map int = 69gkf6phdzlu9z19gd9j0qq7i;
+map str = smap94sqt5kfn6pee6ash6qr1;
+map u8str = gyllbf12kq6ssjfe49w32usk7;
+----
+
+Then use those type names in the protocol declarations. The binary representation of messages will not change, only the type names used in your .hproto file.
+
+However, you can do more and also map the message types defined by your own .hproto file to UUIDs:
+
+----
+map nested_string = 02128789-1b02-40d8-a45f-c76291ed38db;
+map song = 9f8e0c6a-8b8d-408b-97b4-74222ccad1a1;
+
+message nested_string {
+   string text:6;
+};
+
+message song {
+   uint track:3 (zero-leftpad to 1 octet);
+   nested_string artist:5 (zero-rightpad to 0x20 octets);
+   nested_string title:7 (zero-rightpad to 0x40 octets);
+   nested_string description:4 (zero-rightpad to 0x400 octets);
+};
+----
+
+As you can see, the base-35 UUIDs used by the hproto project are not the only ones allowed. UUIDs can also be specified in the usual hex-format as shown above.
+
+hproto does not really care about the format or structure of the UUIDs. They are just treated as strings which have to be unique. Nevertheless, the hproto compiler (once it exists) might check for known UUID formats and complain if an unsupported UUID format is used.
+
+So better stick to either of the following formats, which all represent the very same UUID:
+
+----
+map song = 9f8e0c6a-8b8d-408b-97b4-74222ccad1a1;
+map song_alias_1 = {9f8e0c6a-8b8d-408b-97b4-74222ccad1a1};
+map song_alias_2 = 9f8e0c6a8b8d408b97b474222ccad1a1;
+map song_alias_3 = ik1m6app4dzils3qj05ai0d8p;
+----
+
+But don't forget that the hproto compiler might not recognize those equivalences and just compare UUID-strings case-sensitively. Therefore choose one of the UUID formatting variants and stick with it.
+
+By the way, the last variant is the base-35 representation used by the hproto project for the UUIDs issued by it. It is more compact than the hex representation. You are welcome to encode your own UUIDs in the same way, but are not compelled to do so. The details of this format are described elsewhere.
+
+But back to the UUID-mappings for your own message types: What are they good for?
+
+First of all, they are optional. The UUID is not required for the message declarations in a .hproto file to be used for serialization/marshalling.
+
+However, declaring a UUID for message types allows the same message types to be used by a foreign .hproto type which maps the same UUIDs.
+
+This alone is not enough; the hproto compiler will also need access to the referenced message declarations.
+
+However, the UUID mappings allows the compiler to find those declarations, and allows to user to use different names for the same external message declarations if this is desired.
+
+This means if your .proto file declares
+
+----
+map nested_string = 02128789-1b02-40d8-a45f-c76291ed38db;
+
+message nested_string {
+   string text:6;
+};
+----
+
+Then someone else's .proto file might declare
+
+----
+map embedded_string = 02128789-1b02-40d8-a45f-c76291ed38db;
+----
+
+And both .proto files will refer to the same actual declaration of "nested_string", minus the name which as been changed in this case.
+
+The hproto compiler will still need a copy of your .hproto file for learning the definition of the message, but it will suffice to put it into some library directory scanned by the hproto compiler; you do not need to specify its exact path.
 
 
 Predefined field data types and associated wire encodings
