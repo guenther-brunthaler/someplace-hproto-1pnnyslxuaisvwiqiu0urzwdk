@@ -1,7 +1,7 @@
 hproto - Human-friendly binary protocol message encoding
 ========================================================
 Guenther Brunthaler
-v2021.3
+v2023.38
 
 Introduction
 ------------
@@ -893,4 +893,11 @@ Such a message will have the following encoding:
 Note that the fields ending with "..." are nested fields which include their own length. The idea is that the "inner" length specifications define the actual length of the field contents, where the `zero-rightpad` width just ensures that there is enough space for increasing the inner length in-place.
 
 
-include::field_data_types.adoc[]
+Predefined field data types and associated wire encodings
+---------------------------------------------------------
+
+Those have been moved to link:field_data_types.html[a separate document], allowing to share the wire encodings with other protocol encoding schemes.
+
+Note that there might be serveral wire-encoding variants available for the same purpose. 'hproto'-based protocols should only use those of the available data types which are annotated as being "human-friendly".
+
+Otherwise, even though 'hproto' at its core is a human-friendly protocol, humans will still have a hard time decoding a message manually if the contained message fields use non-human-friendly encodings.
