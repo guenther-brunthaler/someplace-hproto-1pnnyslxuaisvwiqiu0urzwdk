@@ -1,0 +1,1 @@
+"locale_string" (UUID smbgv847g4fyvel5tfir6gtr5) - A text string using the character set and encoding defined by the locale which is currently in effect by the process where the string originated from, whatever it may be.

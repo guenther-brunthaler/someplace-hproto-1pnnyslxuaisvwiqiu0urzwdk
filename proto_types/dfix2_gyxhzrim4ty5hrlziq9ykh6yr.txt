@@ -1,0 +1,1 @@
+"dfix2" (UUID gyxhzrim4ty5hrlziq9ykh6yr): This is a decimal number with exactly two fractional digits. It is simply stored multiplied by 100 as an "int". Note that this encoding might actually be longer than that of "dfix4" if there are trailing fractional zero digits.

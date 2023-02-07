@@ -1,0 +1,1 @@
+"bytestring" (UUID smd1ish29drr4cu3mvj84pfva) - A string containing binary bytes that are not necessarily text but may as well be such. A string of whatever your C compiler considers to be a "char". Obviously this is implementation-specific and thus not portable. However, it is fine for mashalling data between different processes or threads on the same machine.

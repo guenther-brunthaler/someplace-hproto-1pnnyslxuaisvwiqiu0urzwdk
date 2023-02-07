@@ -1,0 +1,1 @@
+"octetstring" (UUID smc8gywnq3bpmutkpgqawm870) - A string containing binary bytes that are not necessarily text but may as well be such. Should be used if it is important/relevant that the string consists of 8-bit bytes.

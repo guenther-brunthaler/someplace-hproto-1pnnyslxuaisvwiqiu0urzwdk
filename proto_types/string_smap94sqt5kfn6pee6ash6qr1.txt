@@ -1,0 +1,1 @@
+"string" (UUID smap94sqt5kfn6pee6ash6qr1) - A text string of unspecified encoding or character set. Use this to pass through string values where the encoding is unknown or subject to change. Use "string" if you just don't care about the character encoding, and don't even want to know such details.

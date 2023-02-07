@@ -1,0 +1,1 @@
+"utf8_string" (UUID gyllbf12kq6ssjfe49w32usk7) - a UNICODE string in UTF-8 encoding without a particular normalization form. That is, such a strings may contain a mixture of NFC- and NFD-encoded UNICODE characters.

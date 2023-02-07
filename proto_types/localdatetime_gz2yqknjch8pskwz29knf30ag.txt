@@ -1,0 +1,1 @@
+"localdatetime" (UUID gz2yqknjch8pskwz29knf30ag): This is in fact a predefined "message localdatetime {serialdate date:0; serialtime time:1 = 0}" which contains everything necessary to compare two timestamps taken at the same place (with regard to the timezone) on possibly different dates.

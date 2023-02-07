@@ -1,0 +1,1 @@
+"bcd_a" (UUID sm89e7p3ex3k9zc670yzb7wlu): Like "ubcd_a_0", except that a single ASCII period (".") character may also be included representing an optional decimal point. In addition, a leading ASCII hyphen ("-") may specifiy a negative sign. No "+" character or space padding is allowed. However, leading "0" digits (but still after any "-") may be used for padding.

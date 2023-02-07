@@ -1,0 +1,1 @@
+"ubcd8_0" (UUID gz5ardls06vfgguraht0dl6wf): Like "bcd4", except that every decimal digit is packed into 8 bits of the integer. This requires twice the space, but bit shifting is unnecessary for converting for input/output. For instance, the decimal value 3456 will be encoded resulting in a hex dump 0x03 0x04 0x05 0x06.

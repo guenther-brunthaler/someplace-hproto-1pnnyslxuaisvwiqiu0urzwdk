@@ -1,0 +1,1 @@
+"ubcd_a_0" (UUID gz5ardls06vfgguraht0dl6wf): Like "bcd8", except that ASCII digit codes are used instead of binary digit values. For instance, the decimal value 3456 will be encoded resulting in a hex dump 0x33 0x34 0x35 0x36 which is the same as the ASCII string representing the value. "bcd_a" thus means "store the number as ASCII text using ASCII decimal digits".

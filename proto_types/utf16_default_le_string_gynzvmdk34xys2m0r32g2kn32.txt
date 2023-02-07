@@ -1,0 +1,1 @@
+"utf16_default_le_string" (UUID gynzvmdk34xys2m0r32g2kn32) - a UNICODE string in UTF-16 encoding without a particular normalization form (see "uft8_string"). A BOM may be used to indicate the byte order. Without a BOM, the byte order must be little-endian.
