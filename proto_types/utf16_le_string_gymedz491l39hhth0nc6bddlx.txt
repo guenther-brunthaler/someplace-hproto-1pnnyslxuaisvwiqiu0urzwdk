@@ -1,0 +1,1 @@
+"utf16_le_string" (UUID gymedz491l39hhth0nc6bddlx) - a UNICODE string in UTF-16LE encoding without a particular normalization form (see "utf8_string"). No BOM is used, little-endian representation is mandatory. External types referenced from within this type definition: "utf8_string" (UUID gyllbf12kq6ssjfe49w32usk7).

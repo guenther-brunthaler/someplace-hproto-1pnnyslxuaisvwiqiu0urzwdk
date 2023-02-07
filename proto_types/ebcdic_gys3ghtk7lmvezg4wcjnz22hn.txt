@@ -1,0 +1,1 @@
+"ebcdic" (UUID gys3ghtk7lmvezg4wcjnz22hn) - this is just included for completeness. EBCDIC is a character set mostly used on ancient IBM mainframes. It has little significance nowadays, but may still be encountered when dealing with historic data records or ancient applications. It is a 7-bit character set like ASCII, but assigns the characters in a different way to codepoints.
