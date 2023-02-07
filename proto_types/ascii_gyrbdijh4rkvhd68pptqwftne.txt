@@ -1,1 +1,1 @@
-"ascii" (UUID gyrbdijh4rkvhd68pptqwftne) - a UNICODE string which is restricted to the first 128 UNICODE code points, also known as ASCII, US-ASCII or IA85. It represents all characters als octets with the most significant bit set to 0.
+"ascii" (UUID gyrbdijh4rkvhd68pptqwftne) - a UNICODE string which is restricted to the first 128 UNICODE code points, also known as ASCII, US-ASCII or IA85. It represents all characters als octets with the most significant bit set to 0. This is a sufficiently human-friendly format for manual decoding.
